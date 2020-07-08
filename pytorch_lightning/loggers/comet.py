@@ -57,7 +57,6 @@ class CometLogger(LightningLoggerBase):
         ...     workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
         ...     save_dir='.',  # Optional
         ...     project_name='default_project',  # Optional
-        ...     rest_api_key=os.environ.get('COMET_REST_API_KEY'),  # Optional
         ...     experiment_name='default'  # Optional
         ... )
         >>> trainer = Trainer(logger=comet_logger)
@@ -71,7 +70,6 @@ class CometLogger(LightningLoggerBase):
         ...     save_dir='.',
         ...     workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
         ...     project_name='default_project',  # Optional
-        ...     rest_api_key=os.environ.get('COMET_REST_API_KEY'),  # Optional
         ...     experiment_name='default'  # Optional
         ... )
         >>> trainer = Trainer(logger=comet_logger)
@@ -83,8 +81,7 @@ class CometLogger(LightningLoggerBase):
         project_name: Optional. Send your experiment to a specific project.
             Otherwise will be sent to Uncategorized Experiments.
             If the project name does not already exist, Comet.ml will create a new project.
-        rest_api_key: Optional. Rest API key found in Comet.ml settings.
-            This is used to determine version number
+        rest_api_key: Deprecated
         experiment_name: Optional. String representing the name for this particular experiment on Comet.ml.
         experiment_key: Optional. If set, restores from existing experiment.
     """
@@ -95,7 +92,6 @@ class CometLogger(LightningLoggerBase):
         save_dir: Optional[str] = None,
         workspace: Optional[str] = None,
         project_name: Optional[str] = None,
-        rest_api_key: Optional[str] = None,
         experiment_name: Optional[str] = None,
         experiment_key: Optional[str] = None,
         **kwargs,
@@ -127,16 +123,6 @@ class CometLogger(LightningLoggerBase):
         self.project_name = project_name
         self.experiment_key = experiment_key
         self.experiment_name = experiment_name
-        self._kwargs = kwargs
-
-        if rest_api_key is not None:
-            # Comet.ml rest API, used to determine version number
-            self.rest_api_key = rest_api_key
-            self.comet_api = API(self.rest_api_key)
-        else:
-            self.rest_api_key = None
-            self.comet_api = None
-
         self._kwargs = kwargs
 
     @property
