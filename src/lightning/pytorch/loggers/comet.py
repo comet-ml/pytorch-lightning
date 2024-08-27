@@ -19,7 +19,7 @@ Comet Logger
 import logging
 import os
 from argparse import Namespace
-from typing import Any, Dict, Mapping, Optional, TYPE_CHECKING, Union
+from typing import Any, Dict, Literal, Mapping, Optional, TYPE_CHECKING, Union
 
 from lightning_utilities.core.imports import RequirementCache
 from torch import Tensor
@@ -205,15 +205,21 @@ class CometLogger(Logger):
     ):
         if not _COMET_AVAILABLE:
             raise ModuleNotFoundError(str(_COMET_AVAILABLE))
-        super().__init__()
-        self._experiment = None
+
         self._save_dir: Optional[str]
+        self.api_key: str
+        self.mode: Literal["online", "offline"]
+
+        super().__init__()
 
         # needs to be set before the first `comet_ml` import
         # because comet_ml imported after another machine learning libraries (Torch)
         os.environ["COMET_DISABLE_AUTO_LOGGING"] = "1"
 
         import comet_ml
+
+        comet_experiment = Union[comet_ml.Experiment, comet_ml.ExistingExperiment, comet_ml.OfflineExperiment]
+        self._experiment: Optional[comet_experiment] = None
 
         # Determine online or offline mode based on which arguments were passed to CometLogger
         api_key = api_key or comet_ml.config.get_api_key(None, comet_ml.config.get_config())
@@ -255,23 +261,23 @@ class CometLogger(Logger):
         if self._experiment is not None and self._experiment.alive:
             return self._experiment
 
-        from comet_ml import ExistingExperiment, OfflineExperiment
+        import comet_ml
 
-        if self.mode == "online":
-            self._experiment = ExistingExperiment(
-                api_key=self.api_key,
-                project_name=self._project_name,
-                previous_experiment=self._experiment_key,
-                **self._kwargs,
-            )
-        else:
-            self._experiment = OfflineExperiment(
-                offline_directory=self.save_dir, project_name=self._project_name, **self._kwargs
-            )
+        comet_comfig = comet_ml.ExperimentConfig(
+            offline_directory=self._save_dir,
+            name=self._experiment_name,
+            **self._kwargs,
+        )
+
+        self._experiment = comet_ml.start(
+            api_key=self.api_key,
+            project=self._project_name,
+            experiment_key=self._experiment_key,
+            online=self.mode == "online",
+            experiment_config=comet_comfig,
+        )
+
         self._experiment.log_other("Created from", "pytorch-lightning")
-
-        if self._experiment_name:
-            self._experiment.set_name(self._experiment_name)
 
         return self._experiment
 
