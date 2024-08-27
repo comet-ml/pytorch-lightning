@@ -19,7 +19,7 @@ Comet Logger
 import logging
 import os
 from argparse import Namespace
-from typing import TYPE_CHECKING, Any, Dict, Mapping, Optional, Union
+from typing import Any, Dict, Mapping, Optional, TYPE_CHECKING, Union
 
 from lightning_utilities.core.imports import RequirementCache
 from torch import Tensor
@@ -208,7 +208,6 @@ class CometLogger(Logger):
         super().__init__()
         self._experiment = None
         self._save_dir: Optional[str]
-        self.rest_api_key: Optional[str]
 
         # needs to be set before the first `comet_ml` import
         # because comet_ml imported after another machine learning libraries (Torch)
@@ -237,11 +236,10 @@ class CometLogger(Logger):
         log.info(f"CometLogger will be initialized in {self.mode} mode")
 
         self._project_name: Optional[str] = project_name
-        self._experiment_key: Optional[str] = experiment_key
+        self._experiment_key: str = experiment_key or os.environ.get("COMET_EXPERIMENT_KEY") or comet_ml.generate_guid()
         self._experiment_name: Optional[str] = experiment_name
         self._prefix: str = prefix
-        self._kwargs: Any = kwargs
-        self._future_experiment_key: Optional[str] = None
+        self._kwargs: Dict[str, Any] = kwargs
 
     @property
     @rank_zero_experiment
@@ -257,32 +255,20 @@ class CometLogger(Logger):
         if self._experiment is not None and self._experiment.alive:
             return self._experiment
 
-        if self._future_experiment_key is not None:
-            os.environ["COMET_EXPERIMENT_KEY"] = self._future_experiment_key
+        from comet_ml import ExistingExperiment, OfflineExperiment
 
-        from comet_ml import ExistingExperiment, Experiment, OfflineExperiment
-
-        try:
-            if self.mode == "online":
-                if self._experiment_key is None:
-                    self._experiment = Experiment(api_key=self.api_key, project_name=self._project_name, **self._kwargs)
-                    self._experiment_key = self._experiment.get_key()
-                else:
-                    self._experiment = ExistingExperiment(
-                        api_key=self.api_key,
-                        project_name=self._project_name,
-                        previous_experiment=self._experiment_key,
-                        **self._kwargs,
-                    )
-            else:
-                self._experiment = OfflineExperiment(
-                    offline_directory=self.save_dir, project_name=self._project_name, **self._kwargs
-                )
-            self._experiment.log_other("Created from", "pytorch-lightning")
-        finally:
-            if self._future_experiment_key is not None:
-                os.environ.pop("COMET_EXPERIMENT_KEY")
-                self._future_experiment_key = None
+        if self.mode == "online":
+            self._experiment = ExistingExperiment(
+                api_key=self.api_key,
+                project_name=self._project_name,
+                previous_experiment=self._experiment_key,
+                **self._kwargs,
+            )
+        else:
+            self._experiment = OfflineExperiment(
+                offline_directory=self.save_dir, project_name=self._project_name, **self._kwargs
+            )
+        self._experiment.log_other("Created from", "pytorch-lightning")
 
         if self._experiment_name:
             self._experiment.set_name(self._experiment_name)
@@ -366,35 +352,12 @@ class CometLogger(Logger):
         """Gets the version.
 
         Returns:
-            The first one of the following that is set in the following order
-
-            1. experiment id.
-            2. experiment key.
-            3. "COMET_EXPERIMENT_KEY" environment variable.
-            4. future experiment key.
-
-            If none are present generates a new guid.
-
+            experiment id/key
         """
-        # Don't create an experiment if we don't have one
         if self._experiment is not None:
             return self._experiment.id
 
-        if self._experiment_key is not None:
-            return self._experiment_key
-
-        if "COMET_EXPERIMENT_KEY" in os.environ:
-            return os.environ["COMET_EXPERIMENT_KEY"]
-
-        if self._future_experiment_key is not None:
-            return self._future_experiment_key
-
-        import comet_ml
-
-        # Pre-generate an experiment key
-        self._future_experiment_key = comet_ml.generate_guid()
-
-        return self._future_experiment_key
+        return self._experiment_key
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
