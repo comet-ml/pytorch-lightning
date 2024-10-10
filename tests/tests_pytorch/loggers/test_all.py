@@ -20,7 +20,7 @@ from unittest.mock import ANY, Mock
 
 import pytest
 import torch
-from lightning.fabric.utilities.imports import _TORCH_GREATER_EQUAL_2_4
+from lightning.fabric.utilities.imports import _TORCH_EQUAL_2_4_0, _TORCH_GREATER_EQUAL_2_4_1
 from lightning.pytorch import Callback, Trainer
 from lightning.pytorch.demos.boring_classes import BoringModel
 from lightning.pytorch.loggers import (
@@ -107,7 +107,9 @@ def test_loggers_fit_test_all(logger_class, mlflow_mock, wandb_mock, comet_mock,
 
     if logger_class == CometLogger:
         logger.experiment.id = "foo"
-        logger.experiment.project_name = "bar"
+        logger._comet_config.offline_directory = None
+        logger._project_name = "bar"
+        logger.experiment.get_key.return_value = "SOME_KEY"
 
     if logger_class == NeptuneLogger:
         logger._retrieve_run_data = Mock()
@@ -163,7 +165,7 @@ def test_loggers_pickle_all(tmp_path, monkeypatch, logger_class):
         pytest.xfail(f"pickle test requires {logger_class.__class__} dependencies to be installed.")
 
 
-def _test_loggers_pickle(tmp_path, monkeypatch, logger_class):
+def _test_loggers_pickle(tmp_path, monkeypatch, logger_class: Logger):
     """Verify that pickling trainer with logger works."""
     _patch_comet_atexit(monkeypatch)
 
@@ -184,7 +186,11 @@ def _test_loggers_pickle(tmp_path, monkeypatch, logger_class):
     trainer = Trainer(max_epochs=1, logger=logger)
     pkl_bytes = pickle.dumps(trainer)
 
-    with pytest.warns(FutureWarning, match="`weights_only=False`") if _TORCH_GREATER_EQUAL_2_4 else nullcontext():
+    with (
+        pytest.warns(FutureWarning, match="`weights_only=False`")
+        if _TORCH_EQUAL_2_4_0 or (_TORCH_GREATER_EQUAL_2_4_1 and logger_class not in (CSVLogger, TensorBoardLogger))
+        else nullcontext()
+    ):
         trainer2 = pickle.loads(pkl_bytes)
     trainer2.logger.log_metrics({"acc": 1.0})
 
@@ -295,7 +301,9 @@ def test_logger_with_prefix_all(mlflow_mock, wandb_mock, comet_mock, neptune_moc
     _patch_comet_atexit(monkeypatch)
     logger = _instantiate_logger(CometLogger, save_dir=tmp_path, prefix=prefix)
     logger.log_metrics({"test": 1.0}, step=0)
-    logger.experiment.log_metrics.assert_called_once_with({"tmp-test": 1.0}, epoch=None, step=0)
+    logger.experiment.__internal_api__log_metrics__.assert_called_once_with(
+        {"test": 1.0}, epoch=None, step=0, prefix=prefix, framework="pytorch-lightning"
+    )
 
     # MLflow
     Metric = mlflow_mock.entities.Metric
